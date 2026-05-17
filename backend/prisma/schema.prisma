@@ -1,0 +1,33 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Event {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  price       Float
+  totalStock  Int
+  date        DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  transactions Transaction[]
+}
+
+model Transaction {
+  id        String   @id @default(uuid())
+  userId    String
+  eventId   String
+  status    String   // PENDING, PAID, EXPIRED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  event     Event    @relation(fields: [eventId], references: [id])
+}
