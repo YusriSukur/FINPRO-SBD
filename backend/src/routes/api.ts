@@ -1,10 +1,14 @@
 import express from 'express';
 import * as eventController from '../controllers/eventController.js';
 import * as ticketController from '../controllers/ticketController.js';
-
+import * as authController from '../controllers/authController.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
 
+// Auth
+router.post('/auth/register', authController.register);
+router.post('/auth/login', authController.login);
 
 // Events
 router.get('/events', eventController.getEvents);

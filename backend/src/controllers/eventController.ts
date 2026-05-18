@@ -37,12 +37,22 @@ export const getEventById = async (req: Request, res: Response) => {
 
 export const createEvent = async (req: Request, res: Response) => {
   try {
-    const { title, description, price, totalStock, date } = req.body;
+    const { title, description, price, priceVIP, priceCAT1, priceCAT2, imageUrl, totalStock, date } = req.body;
+    
+    const parsedPriceVIP = priceVIP ? parseFloat(priceVIP) : 2500000;
+    const parsedPriceCAT1 = priceCAT1 ? parseFloat(priceCAT1) : 1500000;
+    const parsedPriceCAT2 = priceCAT2 ? parseFloat(priceCAT2) : 800000;
+    const basePrice = price ? parseFloat(price) : parsedPriceCAT2;
+
     const event = await prisma.event.create({
       data: {
         title,
         description,
-        price: parseFloat(price),
+        price: basePrice,
+        priceVIP: parsedPriceVIP,
+        priceCAT1: parsedPriceCAT1,
+        priceCAT2: parsedPriceCAT2,
+        imageUrl,
         totalStock: parseInt(totalStock),
         date: new Date(date),
       },
