@@ -28,6 +28,18 @@ body {
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37) !important;
 }
 
+/* Gradient Utilities */
+.gradient-text {
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text !important;
+}
+
+.gradient-bg {
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
+}
+
 /* Premium War Button Gradient */
 .war-button {
   background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
