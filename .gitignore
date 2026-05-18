@@ -41,7 +41,3 @@ yarn-error.log*
 # System Files
 .DS_Store
 Thumbs.db
-
-# Reports (Keep Local Only)
-laporan_pengerjaan.pdf
-laporan_pengerjaan.html
