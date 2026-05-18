@@ -1,0 +1,55 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  BUYER
+  SELLER
+}
+
+model Event {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  price       Float
+  priceVIP    Float    @default(2500000)
+  priceCAT1   Float    @default(1500000)
+  priceCAT2   Float    @default(800000)
+  imageUrl    String?
+  totalStock  Int
+  date        DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  transactions Transaction[]
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(BUYER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  transactions Transaction[]
+}
+
+model Transaction {
+  id          String   @id @default(uuid())
+  userId      String
+  eventId     String
+  status      String   // PENDING, PAID, EXPIRED
+  seatDetails String?  // Stores JSON string of selected seat category, seat number, and price
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  event       Event    @relation(fields: [eventId], references: [id])
+  user        User     @relation(fields: [userId], references: [id])
+}

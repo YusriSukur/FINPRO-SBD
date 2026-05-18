@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ticketflash-db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ticketflash
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: ticketflash-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--notify-keyspace-events", "Ex"] # Enable TTL expiry notifications
+
+volumes:
+  postgres_data:
