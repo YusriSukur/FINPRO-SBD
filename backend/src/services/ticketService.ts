@@ -2,7 +2,9 @@ import redis, { isRedisConnected } from '../redis.js';
 import prisma from '../db.js';
 
 
-export const reserveTicket = async (eventId: string, userId: string) => {
+import { TicketCategory } from '@prisma/client';
+
+export const reserveTicket = async (eventId: string, userId: string, category?: TicketCategory, seatNumber?: string, price?: number) => {
   if (!isRedisConnected()) {
     throw new Error('Service Unavailable: Reservation system is currently offline.');
   }
@@ -34,7 +36,8 @@ export const reserveTicket = async (eventId: string, userId: string) => {
     }
 
     // Set hold key with 5 minute TTL (300 seconds)
-    await redis.set(holdKey, 'held', 'EX', 300);
+    const holdData = JSON.stringify({ category, seatNumber, price });
+    await redis.set(holdKey, holdData, 'EX', 300);
     
     // Remove the promotion flag once they reserve
     await redis.del(canReserveKey);
@@ -59,9 +62,21 @@ export const confirmPayment = async (eventId: string, userId: string) => {
   try {
     const holdKey = `hold:${eventId}:${userId}`;
 
-    const isHeld = await redis.get(holdKey);
-    if (!isHeld) {
+    const holdDataStr = await redis.get(holdKey);
+    if (!holdDataStr) {
       throw new Error('Reservation expired or not found.');
+    }
+
+    let category, seatNumber, price;
+    try {
+      if (holdDataStr !== 'held') {
+        const parsed = JSON.parse(holdDataStr);
+        category = parsed.category;
+        seatNumber = parsed.seatNumber;
+        price = parsed.price;
+      }
+    } catch (e) {
+      console.error('Failed to parse hold data', e);
     }
 
     // Finalize in PostgreSQL and decrement stock atomically
@@ -71,6 +86,9 @@ export const confirmPayment = async (eventId: string, userId: string) => {
           userId,
           eventId,
           status: 'PAID',
+          category: category as TicketCategory | undefined,
+          seatNumber,
+          price,
         },
       }),
       prisma.event.update({

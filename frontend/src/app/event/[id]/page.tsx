@@ -129,15 +129,8 @@ export default function EventDetail({ params }: { params: Promise<{ id: string }
     try {
       setStatus('reserving');
       
-      const seatDetails = JSON.stringify({
-        category: selectedCategory.name,
-        seat: selectedSeat,
-        price: selectedCategory.price
-      });
-
-      // API call should accept seatDetails in a real app.
-      // For now we use the existing reserveTicket function and mock the backend capability.
-      await reserveTicket(id, user.id); 
+      const enumCategory = selectedCategory.id.toUpperCase(); // VIP, CAT1, CAT2
+      await reserveTicket(id, user.id, enumCategory, selectedSeat, selectedCategory.price); 
     } catch (error: any) {
       alert(error.response?.data?.error || 'Failed to reserve');
       setStatus('selecting_seat');
