@@ -62,10 +62,25 @@ export const promoteFromQueue = async (eventId: string, count: number = 5) => {
   }
 
   try {
+    // Issue 2 Fix: Check if there is any stock left before promoting
+    const categories = ['VIP', 'CAT1', 'CAT2'];
+    const stockKeys = categories.map(cat => `ticket_stock:${eventId}:${cat}`);
+    const stocks = await redis.mget(...stockKeys);
+    
+    const totalStockAvailable = stocks.reduce((acc, curr) => acc + (curr ? parseInt(curr) : 0), 0);
+    
+    if (totalStockAvailable <= 0) {
+      // Optional: Notify queue that it's sold out
+      // io.to(`event:${eventId}`).emit('sold_out', { eventId });
+      return [];
+    }
+
     const queueKey = `queue:${eventId}`;
     const promotedUsers = [];
 
     for (let i = 0; i < count; i++) {
+      // Re-check stock for each individual promotion if needed, 
+      // but for performance, we'll just pop if we had stock at the start of this batch
       const userId = await redis.lpop(queueKey);
       if (!userId) break;
       promotedUsers.push(userId);
