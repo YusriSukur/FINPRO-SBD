@@ -103,6 +103,9 @@ export const createEvent = async (req: Request, res: Response) => {
     // Initialize stock in Redis
     await redis.set(`ticket_stock:${event.id}`, totalStock);
     
+    // Add to active events set for background worker
+    await redis.sadd('active_events', event.id);
+    
     // Invalidate events cache
     await redis.del('events:list');
     
