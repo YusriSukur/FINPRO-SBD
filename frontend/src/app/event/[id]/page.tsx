@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, use } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Navbar } from '../../../components/Navbar';
 import { api, getEventById, joinQueue, getQueueStatus, reserveTicket, confirmPayment } from '../../../lib/api';
@@ -8,8 +8,8 @@ import { socket } from '../../../lib/socket';
 import { Calendar, MapPin, Users, Timer, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function EventDetail({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function EventDetail({ params }: { params: { id: string } }) {
+  const { id } = params;
   const router = useRouter();
   const [event, setEvent] = useState<any>(null);
   const [loading, setLoading] = useState(true);
