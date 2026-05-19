@@ -76,13 +76,13 @@ export default function EventDetail({ params }: { params: Promise<{ id: string }
       currentUserId = parsedUser.id;
     }
 
-    socket.on('queue_update', (data) => {
+    socket.on('queue_update', (data: any) => {
       if (data.eventId === id) {
         // Optionally update global queue length
       }
     });
 
-    socket.on('user_promoted', (data) => {
+    socket.on('user_promoted', (data: any) => {
       if (currentUserId && data.userId === currentUserId && data.eventId === id) {
         setStatus('promoted');
       }
