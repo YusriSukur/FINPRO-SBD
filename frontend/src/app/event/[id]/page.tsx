@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, use } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Navbar } from '../../../components/Navbar';
 import { api, getEventById, joinQueue, getQueueStatus, reserveTicket, confirmPayment } from '../../../lib/api';
@@ -8,8 +8,8 @@ import { socket } from '../../../lib/socket';
 import { Calendar, MapPin, Users, Timer, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function EventDetail({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function EventDetail({ params }: { params: { id: string } }) {
+  const { id } = params;
   const router = useRouter();
   const [event, setEvent] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -76,13 +76,13 @@ export default function EventDetail({ params }: { params: Promise<{ id: string }
       currentUserId = parsedUser.id;
     }
 
-    socket.on('queue_update', (data) => {
+    socket.on('queue_update', (data: any) => {
       if (data.eventId === id) {
         // Optionally update global queue length
       }
     });
 
-    socket.on('user_promoted', (data) => {
+    socket.on('user_promoted', (data: any) => {
       if (currentUserId && data.userId === currentUserId && data.eventId === id) {
         setStatus('promoted');
       }
@@ -129,15 +129,8 @@ export default function EventDetail({ params }: { params: Promise<{ id: string }
     try {
       setStatus('reserving');
       
-      const seatDetails = JSON.stringify({
-        category: selectedCategory.name,
-        seat: selectedSeat,
-        price: selectedCategory.price
-      });
-
-      // API call should accept seatDetails in a real app.
-      // For now we use the existing reserveTicket function and mock the backend capability.
-      await reserveTicket(id, user.id); 
+      const enumCategory = selectedCategory.id.toUpperCase(); // VIP, CAT1, CAT2
+      await reserveTicket(id, user.id, enumCategory, selectedSeat, selectedCategory.price); 
     } catch (error: any) {
       alert(error.response?.data?.error || 'Failed to reserve');
       setStatus('selecting_seat');

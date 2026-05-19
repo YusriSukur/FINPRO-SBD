@@ -9,6 +9,7 @@ import * as queueService from './services/queueService.js';
 
 import apiRoutes from './routes/api.js';
 import prisma from './db.js';
+import redis, { isRedisConnected } from './redis.js';
 
 
 const app = express();
@@ -27,6 +28,23 @@ app.use(express.json());
 
 // API Routes
 app.use('/api', apiRoutes);
+
+// Health Endpoint
+app.get('/health', async (req, res) => {
+  try {
+    // Quickly test purely DB connection
+    await prisma.$queryRaw`SELECT 1`;
+    const redisOk = isRedisConnected();
+    
+    res.json({
+      status: 'ok',
+      db: 'connected',
+      redis: redisOk ? 'connected' : 'offline',
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', error: String(error) });
+  }
+});
 
 app.get('/', (req, res) => {
   res.json({ message: 'TicketFlash Backend API' });
@@ -48,16 +66,38 @@ io.on('connection', (socket) => {
 
 // import prisma from './db.js'; // Moved to top
 
+// Bootstrap existing events into Redis on startup
+const bootstrapActiveEvents = async () => {
+  try {
+    if (isRedisConnected()) {
+      const events = await prisma.event.findMany({ select: { id: true } });
+      if (events.length > 0) {
+        const eventIds = events.map(e => e.id);
+        await redis.sadd('active_events', ...eventIds);
+        console.log(`✅ Bootstrapped ${events.length} active events into Redis`);
+      }
+    }
+  } catch (error) {
+    console.error('Failed to bootstrap active events:', error);
+  }
+};
+bootstrapActiveEvents();
+
 // Background Worker: Promote users from queue every 5 seconds
 setInterval(async () => {
   try {
-    const events = await prisma.event.findMany();
-    for (const event of events) {
+    if (!isRedisConnected()) {
+      console.log('⚠️ Redis offline, skipping background queue promotion.');
+      return;
+    }
+
+    const activeEventIds = await redis.smembers('active_events');
+    for (const eventId of activeEventIds) {
       // For this demo, let's promote 3 users every 5 seconds if there's stock
       // In a real app, this would be more sophisticated
-      const promoted = await queueService.promoteFromQueue(event.id, 3);
-      if (promoted.length > 0) {
-        console.log(`🚀 Promoted ${promoted.length} users for event: ${event.title}`);
+      const promoted = await queueService.promoteFromQueue(eventId, 3);
+      if (promoted && promoted.length > 0) {
+        console.log(`🚀 Promoted ${promoted.length} users for event: ${eventId}`);
       }
     }
   } catch (error) {
