@@ -64,14 +64,20 @@ export const confirmPayment = async (eventId: string, userId: string) => {
       throw new Error('Reservation expired or not found.');
     }
 
-    // Finalize in PostgreSQL
-    const transaction = await prisma.transaction.create({
-      data: {
-        userId,
-        eventId,
-        status: 'PAID',
-      },
-    });
+    // Finalize in PostgreSQL and decrement stock atomically
+    const [transaction] = await prisma.$transaction([
+      prisma.transaction.create({
+        data: {
+          userId,
+          eventId,
+          status: 'PAID',
+        },
+      }),
+      prisma.event.update({
+        where: { id: eventId },
+        data: { totalStock: { decrement: 1 } }
+      })
+    ]);
 
     // Remove hold key
     await redis.del(holdKey);
