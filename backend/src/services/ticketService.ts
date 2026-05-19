@@ -62,7 +62,15 @@ export const confirmPayment = async (eventId: string, userId: string) => {
   try {
     const holdKey = `hold:${eventId}:${userId}`;
 
-    const holdDataStr = await redis.get(holdKey);
+    const script = `
+      local val = redis.call("GET", KEYS[1])
+      if val then
+        redis.call("DEL", KEYS[1])
+      end
+      return val
+    `;
+    const holdDataStr = await redis.eval(script, 1, holdKey) as string | null;
+
     if (!holdDataStr) {
       throw new Error('Reservation expired or not found.');
     }
@@ -79,28 +87,33 @@ export const confirmPayment = async (eventId: string, userId: string) => {
       console.error('Failed to parse hold data', e);
     }
 
-    // Finalize in PostgreSQL and decrement stock atomically
-    const [transaction] = await prisma.$transaction([
-      prisma.transaction.create({
-        data: {
-          userId,
-          eventId,
-          status: 'PAID',
-          category: category as TicketCategory | undefined,
-          seatNumber,
-          price,
-        },
-      }),
-      prisma.event.update({
-        where: { id: eventId },
-        data: { totalStock: { decrement: 1 } }
-      })
-    ]);
+    // Wrap DB operations in a try/catch. If it fails, restore the holdKey
+    try {
+      // Finalize in PostgreSQL and decrement stock atomically
+      const [transaction] = await prisma.$transaction([
+        prisma.transaction.create({
+          data: {
+            userId,
+            eventId,
+            status: 'PAID',
+            category: category as TicketCategory | undefined,
+            seatNumber,
+            price,
+          },
+        }),
+        prisma.event.update({
+          where: { id: eventId },
+          data: { totalStock: { decrement: 1 } }
+        })
+      ]);
 
-    // Remove hold key
-    await redis.del(holdKey);
+      return { success: true, transaction };
+    } catch (dbError: any) {
+      console.error('DB Payment Confirmation Error, restoring hold key...', dbError);
+      await redis.set(holdKey, holdDataStr as string, 'EX', 15 * 60);
 
-    return { success: true, transaction };
+      throw new Error('Database Error: Could not confirm payment in the database.');
+    }
   } catch (error: any) {
     if (error.message && error.message.includes('Reservation expired')) {
       throw error;
