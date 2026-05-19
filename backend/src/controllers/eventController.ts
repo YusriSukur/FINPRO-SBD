@@ -100,14 +100,23 @@ export const createEvent = async (req: Request, res: Response) => {
       },
     });
 
-    // Initialize stock in Redis
-    await redis.set(`ticket_stock:${event.id}`, totalStock);
-    
-    // Add to active events set for background worker
-    await redis.sadd('active_events', event.id);
-    
-    // Invalidate events cache
-    await redis.del('events:list');
+    // Initialize stock in Redis (Issue 4: Categorized Stock)
+    // For this demo, we'll split totalStock: 10% VIP, 30% CAT1, 60% CAT2
+    const vips = Math.floor(totalStock * 0.1);
+    const cat1s = Math.floor(totalStock * 0.3);
+    const cat2s = totalStock - vips - cat1s;
+
+    await Promise.all([
+      redis.set(`ticket_stock:${event.id}:VIP`, vips),
+      redis.set(`ticket_stock:${event.id}:CAT1`, cat1s),
+      redis.set(`ticket_stock:${event.id}:CAT2`, cat2s),
+      // Also keep a total stock reference if needed
+      redis.set(`ticket_stock:${event.id}`, totalStock),
+      // Add to active events set for background worker
+      redis.sadd('active_events', event.id),
+      // Invalidate events cache
+      redis.del('events:list'),
+    ]);
     
     res.status(201).json(event);
   } catch (error: any) {

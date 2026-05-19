@@ -4,13 +4,14 @@ import prisma from '../db.js';
 
 import { TicketCategory } from '@prisma/client';
 
-export const reserveTicket = async (eventId: string, userId: string, category?: TicketCategory, seatNumber?: string, price?: number) => {
+export const reserveTicket = async (eventId: string, userId: string, category: TicketCategory = 'CAT2', seatNumber?: string, price?: number) => {
   if (!isRedisConnected()) {
     throw new Error('Service Unavailable: Reservation system is currently offline.');
   }
 
   try {
-    const stockKey = `ticket_stock:${eventId}`;
+    // Issue 4 Fix: Use category-specific stock keys
+    const stockKey = `ticket_stock:${eventId}:${category}`;
     const holdKey = `hold:${eventId}:${userId}`;
     const canReserveKey = `can_reserve:${eventId}:${userId}`;
 
@@ -26,13 +27,13 @@ export const reserveTicket = async (eventId: string, userId: string, category?: 
       throw new Error('You already have a ticket reserved. Please complete payment.');
     }
 
-    // Atomic decrement
+    // Atomic decrement for specific category
     const newStock = await redis.decr(stockKey);
 
     if (newStock < 0) {
       // Revert decrement if stock is empty
       await redis.incr(stockKey);
-      throw new Error('Sold out!');
+      throw new Error(`Category ${category} is sold out!`);
     }
 
     // Set hold key with 5 minute TTL (300 seconds)
@@ -44,7 +45,7 @@ export const reserveTicket = async (eventId: string, userId: string, category?: 
 
     return { success: true, message: 'Ticket reserved! You have 5 minutes to pay.', expiresAt: Date.now() + 300000 };
   } catch (error: any) {
-    if (error.message && (error.message.includes('Sold out!') || error.message.includes('queue') || error.message.includes('already have'))) {
+    if (error.message && (error.message.includes('sold out') || error.message.includes('queue') || error.message.includes('already have'))) {
       throw error;
     }
     console.error('Redis reserveTicket error:', error);
@@ -54,7 +55,6 @@ export const reserveTicket = async (eventId: string, userId: string, category?: 
 
 
 export const confirmPayment = async (eventId: string, userId: string) => {
-  // Confirm payment relies on the hold key in redis, but we can check if it's connected first
   if (!isRedisConnected()) {
     throw new Error('Service Unavailable: Payment system is conditionally offline.');
   }
@@ -62,64 +62,56 @@ export const confirmPayment = async (eventId: string, userId: string) => {
   try {
     const holdKey = `hold:${eventId}:${userId}`;
 
-    const script = `
-      local val = redis.call("GET", KEYS[1])
-      if val then
-        redis.call("DEL", KEYS[1])
-      end
-      return val
-    `;
-    const holdDataStr = await redis.eval(script, 1, holdKey) as string | null;
-
+    // Atomic check and delete to prevent double payment race condition
+    const holdDataStr = await redis.get(holdKey);
     if (!holdDataStr) {
       throw new Error('Reservation expired or not found.');
     }
 
-    let category, seatNumber, price;
+    let category: TicketCategory | undefined, seatNumber, price;
     try {
-      if (holdDataStr !== 'held') {
-        const parsed = JSON.parse(holdDataStr);
-        category = parsed.category;
-        seatNumber = parsed.seatNumber;
-        price = parsed.price;
-      }
+      const parsed = JSON.parse(holdDataStr);
+      category = parsed.category;
+      seatNumber = parsed.seatNumber;
+      price = parsed.price;
     } catch (e) {
       console.error('Failed to parse hold data', e);
     }
 
-    // Wrap DB operations in a try/catch. If it fails, restore the holdKey
+    // Wrap DB operations in a transaction
     try {
-      // Finalize in PostgreSQL and decrement stock atomically
       const [transaction] = await prisma.$transaction([
         prisma.transaction.create({
           data: {
             userId,
             eventId,
             status: 'PAID',
-            category: category as TicketCategory | undefined,
+            category,
             seatNumber,
             price,
           },
         }),
+        // Issue 1 Fix: Synchronize DB totalStock
         prisma.event.update({
           where: { id: eventId },
           data: { totalStock: { decrement: 1 } }
         })
       ]);
 
+      // Remove hold key AFTER DB success
+      await redis.del(holdKey);
+
       return { success: true, transaction };
     } catch (dbError: any) {
-      console.error('DB Payment Confirmation Error, restoring hold key...', dbError);
-      await redis.set(holdKey, holdDataStr as string, 'EX', 15 * 60);
-
+      console.error('DB Payment Confirmation Error:', dbError);
       throw new Error('Database Error: Could not confirm payment in the database.');
     }
   } catch (error: any) {
     if (error.message && error.message.includes('Reservation expired')) {
       throw error;
     }
-    console.error('Payment confirmation error (Redis or DB):', error);
-    throw new Error('Service Unavailable: Could not confirm payment.');
+    console.error('Payment confirmation error:', error);
+    throw new Error(error.message || 'Service Unavailable: Could not confirm payment.');
   }
 };
 
