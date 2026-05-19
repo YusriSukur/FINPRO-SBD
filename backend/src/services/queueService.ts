@@ -38,6 +38,14 @@ export const getQueueStatus = async (eventId: string, userId: string) => {
 };
 
 export const promoteFromQueue = async (eventId: string, count: number = 5) => {
+  const stockKey = `ticket_stock:${eventId}`;
+  const stock = await redis.get(stockKey);
+
+  if (stock !== null && parseInt(stock) <= 0) {
+    io.to(`event:${eventId}`).emit('event_sold_out', { eventId });
+    return [];
+  }
+
   const queueKey = `queue:${eventId}`;
   const promotedUsers = [];
 

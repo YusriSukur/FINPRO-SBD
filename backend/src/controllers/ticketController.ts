@@ -25,15 +25,11 @@ export const getQueueStatus = async (req: Request, res: Response) => {
 
 export const reserveTicket = async (req: Request, res: Response) => {
   try {
-    const { eventId, userId } = req.body;
+    const { eventId, userId, category, seat } = req.body;
     
-    // Check if user is allowed to reserve (from queue promotion)
-    // For simplicity in this demo, we might skip the strict check or implement it
-    const canReserve = await (process.env.STRICT_QUEUE === 'true' ? 
-      ticketService.reserveTicket(eventId, userId) : 
-      ticketService.reserveTicket(eventId, userId));
+    const result = await ticketService.reserveTicket(eventId, userId, category, seat);
 
-    res.json(canReserve);
+    res.json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }

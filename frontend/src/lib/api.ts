@@ -28,8 +28,8 @@ export const getQueueStatus = async (eventId: string, userId: string) => {
   return response.data;
 };
 
-export const reserveTicket = async (eventId: string, userId: string) => {
-  const response = await api.post('/ticket/reserve', { eventId, userId });
+export const reserveTicket = async (eventId: string, userId: string, category?: string, seat?: string) => {
+  const response = await api.post('/ticket/reserve', { eventId, userId, category, seat });
   return response.data;
 };
 

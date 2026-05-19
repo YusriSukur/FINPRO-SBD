@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, use } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Navbar } from '../../../components/Navbar';
 import { api, getEventById, joinQueue, getQueueStatus, reserveTicket, confirmPayment } from '../../../lib/api';
@@ -8,12 +8,12 @@ import { socket } from '../../../lib/socket';
 import { Calendar, MapPin, Users, Timer, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function EventDetail({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function EventDetail({ params }: { params: { id: string } }) {
+  const { id } = params;
   const router = useRouter();
   const [event, setEvent] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState<'idle' | 'queueing' | 'promoted' | 'selecting_seat' | 'reserving' | 'paid' | 'expired'>('idle');
+  const [status, setStatus] = useState<'idle' | 'queueing' | 'promoted' | 'selecting_seat' | 'reserving' | 'paid' | 'expired' | 'sold_out'>('idle');
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [user, setUser] = useState<any>(null);
   const [timeLeft, setTimeLeft] = useState(300); // 5 minutes
@@ -55,6 +55,9 @@ export default function EventDetail({ params }: { params: Promise<{ id: string }
       try {
         const data = await getEventById(id);
         setEvent(data);
+        if (data.currentStock <= 0) {
+          setStatus('sold_out');
+        }
       } catch (error) {
         console.error('Failed to fetch event:', error);
       } finally {
@@ -88,7 +91,16 @@ export default function EventDetail({ params }: { params: Promise<{ id: string }
       }
     });
 
+    socket.on('event_sold_out', (data) => {
+      if (data.eventId === id) {
+        setStatus('sold_out');
+      }
+    });
+
     return () => {
+      socket.off('queue_update');
+      socket.off('user_promoted');
+      socket.off('event_sold_out');
       socket.disconnect();
     };
   }, [id]);
@@ -129,15 +141,7 @@ export default function EventDetail({ params }: { params: Promise<{ id: string }
     try {
       setStatus('reserving');
       
-      const seatDetails = JSON.stringify({
-        category: selectedCategory.name,
-        seat: selectedSeat,
-        price: selectedCategory.price
-      });
-
-      // API call should accept seatDetails in a real app.
-      // For now we use the existing reserveTicket function and mock the backend capability.
-      await reserveTicket(id, user.id); 
+      await reserveTicket(id, user.id, selectedCategory.name, selectedSeat); 
     } catch (error: any) {
       alert(error.response?.data?.error || 'Failed to reserve');
       setStatus('selecting_seat');
@@ -449,6 +453,19 @@ export default function EventDetail({ params }: { params: Promise<{ id: string }
                     <button onClick={() => setStatus('idle')} className="w-full py-4 rounded-2xl font-bold bg-zinc-800">
                       Coba Lagi
                     </button>
+                  </motion.div>
+                )}
+
+                {status === 'sold_out' && (
+                  <motion.div key="sold_out" className="text-center">
+                    <div className="mb-6 flex justify-center text-red-500">
+                      <AlertCircle size={80} className="glow" />
+                    </div>
+                    <h2 className="text-3xl font-bold mb-2 text-red-500">Sold Out!</h2>
+                    <p className="text-zinc-400 mb-8 text-sm">Maaf, tiket untuk event ini sudah habis terjual.</p>
+                    <a href="/" className="inline-block px-8 py-3 rounded-xl bg-zinc-800 font-bold hover:bg-zinc-700 transition-colors">
+                      Cari Event Lain
+                    </a>
                   </motion.div>
                 )}
               </AnimatePresence>

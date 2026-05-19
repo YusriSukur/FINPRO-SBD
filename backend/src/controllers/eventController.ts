@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import prisma from '../db.js';
-import redis from '../redis';
+import redis from '../redis.js';
 
 export const getEvents = async (req: Request, res: Response) => {
   try {
@@ -22,6 +22,8 @@ export const getEvents = async (req: Request, res: Response) => {
 export const getEventById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    if (typeof id !== 'string') return res.status(400).json({ error: 'Invalid ID' });
+    
     const event = await prisma.event.findUnique({ where: { id } });
     if (!event) return res.status(404).json({ error: 'Event not found' });
 

@@ -23,6 +23,9 @@ model Event {
   priceVIP    Float    @default(2500000)
   priceCAT1   Float    @default(1500000)
   priceCAT2   Float    @default(800000)
+  stockVIP    Int      @default(0)
+  stockCAT1   Int      @default(0)
+  stockCAT2   Int      @default(0)
   imageUrl    String?
   totalStock  Int
   date        DateTime

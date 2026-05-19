@@ -9,6 +9,7 @@ import * as queueService from './services/queueService.js';
 
 import apiRoutes from './routes/api.js';
 import prisma from './db.js';
+import redis from './redis.js';
 
 
 const app = express();
@@ -51,13 +52,15 @@ io.on('connection', (socket) => {
 // Background Worker: Promote users from queue every 5 seconds
 setInterval(async () => {
   try {
-    const events = await prisma.event.findMany();
-    for (const event of events) {
-      // For this demo, let's promote 3 users every 5 seconds if there's stock
-      // In a real app, this would be more sophisticated
-      const promoted = await queueService.promoteFromQueue(event.id, 3);
+    const queueKeys = await redis.keys('queue:*');
+    
+    for (const key of queueKeys) {
+      const eventId = key.split(':')[1];
+      if (!eventId) continue;
+
+      const promoted = await queueService.promoteFromQueue(eventId, 3);
       if (promoted.length > 0) {
-        console.log(`🚀 Promoted ${promoted.length} users for event: ${event.title}`);
+        console.log(`🚀 Promoted ${promoted.length} users for event ID: ${eventId}`);
       }
     }
   } catch (error) {

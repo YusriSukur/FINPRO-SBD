@@ -92,7 +92,7 @@ export default function Home() {
                   description={event.description}
                   price={event.price}
                   date={event.date}
-                  stock={event.totalStock}
+                  stock={event.currentStock}
                   imageUrl={event.imageUrl}
                 />
               ))}
