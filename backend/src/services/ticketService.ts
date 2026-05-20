@@ -75,56 +75,65 @@ export const confirmPayment = async (eventId: string, userId: string) => {
 
   try {
     const holdKey = `hold:${eventId}:${userId}`;
-
-    // Atomic check and delete to prevent double payment race condition
-    const holdDataStr = await redis.get(holdKey);
-    if (!holdDataStr) {
-      throw new Error('Reservation expired or not found.');
-    }
-
+    const paymentLockKey = `payment_lock:${eventId}:${userId}`;
     let category: TicketCategory | undefined, seatNumber, price, reservationId: string | undefined;
+
     try {
-      const parsed = JSON.parse(holdDataStr);
-      category = parsed.category;
-      seatNumber = parsed.seatNumber;
-      price = parsed.price;
-      reservationId = parsed.reservationId;
-    } catch (e) {
-      console.error('Failed to parse hold data', e);
-    }
-
-    // Wrap DB operations in a transaction
-    try {
-      const [transaction] = await prisma.$transaction([
-        prisma.transaction.create({
-          data: {
-            userId,
-            eventId,
-            status: 'PAID',
-            category,
-            seatNumber,
-            price,
-          },
-        }),
-        // Issue 1 Fix: Synchronize DB totalStock
-        prisma.event.update({
-          where: { id: eventId },
-          data: { totalStock: { decrement: 1 } }
-        })
-      ]);
-
-      // Remove hold key AFTER DB success
-      await redis.del(holdKey);
-
-      // Mark reservation as fulfilled (paid) to prevent expiration worker from reclaiming stock
-      if (reservationId) {
-        await redis.set(`fulfilled:${reservationId}`, '1', 'EX', 86400); // 1 day expiration
+      const acquiredLock = await redis.set(paymentLockKey, 'locked', 'NX', 'EX', 15);
+      if (!acquiredLock) {
+        throw new Error('Payment is already being processed. Please wait.');
       }
 
-      return { success: true, transaction };
-    } catch (dbError: any) {
-      console.error('DB Payment Confirmation Error:', dbError);
-      throw new Error('Database Error: Could not confirm payment in the database.');
+      const holdDataStr = await redis.get(holdKey);
+      if (!holdDataStr) {
+        throw new Error('Reservation expired or not found.');
+      }
+
+      try {
+        const parsed = JSON.parse(holdDataStr);
+        category = parsed.category;
+        seatNumber = parsed.seatNumber;
+        price = parsed.price;
+        reservationId = parsed.reservationId;
+      } catch (e) {
+        console.error('Failed to parse hold data', e);
+      }
+
+      // Wrap DB operations in a transaction
+      try {
+        const [transaction] = await prisma.$transaction([
+          prisma.transaction.create({
+            data: {
+              userId,
+              eventId,
+              status: 'PAID',
+              category,
+              seatNumber,
+              price,
+            },
+          }),
+          // Issue 1 Fix: Synchronize DB totalStock
+          prisma.event.update({
+            where: { id: eventId },
+            data: { totalStock: { decrement: 1 } }
+          })
+        ]);
+
+        // Remove hold key AFTER DB success
+        await redis.del(holdKey);
+
+        // Mark reservation as fulfilled (paid) to prevent expiration worker from reclaiming stock
+        if (reservationId) {
+          await redis.set(`fulfilled:${reservationId}`, '1', 'EX', 86400); // 1 day expiration
+        }
+
+        return { success: true, transaction };
+      } catch (dbError: any) {
+        console.error('DB Payment Confirmation Error:', dbError);
+        throw new Error('Database Error: Could not confirm payment in the database.');
+      }
+    } finally {
+      await redis.del(paymentLockKey);
     }
   } catch (error: any) {
     if (error.message && error.message.includes('Reservation expired')) {
