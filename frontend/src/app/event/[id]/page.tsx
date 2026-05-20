@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Navbar } from '../../../components/Navbar';
-import { api, getEventById, joinQueue, getQueueStatus, reserveTicket, confirmPayment } from '../../../lib/api';
+import { api, getEventById, joinQueue, leaveQueue, getQueueStatus, reserveTicket, confirmPayment } from '../../../lib/api';
 import { socket } from '../../../lib/socket';
 import { Calendar, MapPin, Users, Timer, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -93,6 +93,36 @@ export default function EventDetail({ params }: { params: { id: string } }) {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (!user || status !== 'queueing') return;
+
+    let cancelled = false;
+    const pollQueueStatus = async () => {
+      try {
+        const res = await getQueueStatus(id, user.id);
+        if (cancelled) return;
+
+        if (res.status === 'promoted') {
+          setStatus('promoted');
+        } else if (res.status === 'waiting') {
+          setQueuePosition(res.position);
+        } else if (res.status === 'not_in_queue') {
+          setStatus('idle');
+          setQueuePosition(null);
+        }
+      } catch (error) {
+        console.error('Failed to refresh queue status:', error);
+      }
+    };
+
+    pollQueueStatus();
+    const interval = setInterval(pollQueueStatus, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [id, status, user]);
+
   // Timer logic for reservation
   useEffect(() => {
     let interval: any;
@@ -114,9 +144,26 @@ export default function EventDetail({ params }: { params: { id: string } }) {
       setStatus('queueing');
       const res = await joinQueue(id, user.id);
       setQueuePosition(res.position);
+
+      const statusRes = await getQueueStatus(id, user.id);
+      if (statusRes.status === 'promoted') {
+        setStatus('promoted');
+      }
     } catch (error) {
       console.error(error);
       setStatus('idle');
+    }
+  };
+
+  const handleLeaveQueue = async () => {
+    if (!user) return;
+    try {
+      await leaveQueue(id, user.id);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setStatus('idle');
+      setQueuePosition(null);
     }
   };
 
@@ -260,6 +307,12 @@ export default function EventDetail({ params }: { params: { id: string } }) {
                       <div className="text-zinc-500 text-xs uppercase tracking-widest mb-1">Posisi Anda</div>
                       <div className="text-5xl font-black gradient-text">#{queuePosition || '...'}</div>
                     </div>
+                    <button
+                      onClick={handleLeaveQueue}
+                      className="mt-6 w-full py-3 rounded-2xl font-bold bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                    >
+                      Keluar Antrean
+                    </button>
                   </motion.div>
                 )}
 

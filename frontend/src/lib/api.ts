@@ -21,6 +21,11 @@ export const joinQueue = async (eventId: string, userId: string) => {
   return response.data;
 };
 
+export const leaveQueue = async (eventId: string, userId: string) => {
+  const response = await api.post('/queue/leave', { eventId, userId });
+  return response.data;
+};
+
 export const getQueueStatus = async (eventId: string, userId: string) => {
   const response = await api.get('/queue/status', {
     params: { eventId, userId },
