@@ -10,6 +10,7 @@ import * as queueService from './services/queueService.js';
 import apiRoutes from './routes/api.js';
 import prisma from './db.js';
 import redis, { isRedisConnected } from './redis.js';
+import './services/expirationQueue.js';
 
 
 const app = express();
