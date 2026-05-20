@@ -79,7 +79,7 @@ export const confirmPayment = async (eventId: string, userId: string) => {
     let category: TicketCategory | undefined, seatNumber, price, reservationId: string | undefined;
 
     try {
-      const acquiredLock = await redis.set(paymentLockKey, 'locked', 'NX', 'EX', 15);
+      const acquiredLock = await redis.set(paymentLockKey, 'locked', 'EX', 15, 'NX');
       if (!acquiredLock) {
         throw new Error('Payment is already being processed. Please wait.');
       }
