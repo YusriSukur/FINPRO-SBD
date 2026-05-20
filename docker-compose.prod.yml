@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ticketflash-db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ticketflash
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: ticketflash-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--notify-keyspace-events", "Ex"]
+
+  backend:
+    build: ./backend
+    container_name: ticketflash-backend
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - DATABASE_URL=postgresql://user:password@postgres:5432/ticketflash?schema=public
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=supersecretkey
+      - FRONTEND_URL=http://localhost:3000
+    depends_on:
+      - postgres
+      - redis
+
+  frontend:
+    build: ./frontend
+    container_name: ticketflash-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:4000/api
+      - NEXT_PUBLIC_SOCKET_URL=http://localhost:4000
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

@@ -66,8 +66,14 @@ setInterval(async () => {
 }, 5000);
 
 
-server.listen(PORT, () => {
-  console.log(`🔥 Server running on http://localhost:${PORT}`);
-});
+// Only start the server listening if NOT running on Vercel
+if (!process.env.VERCEL) {
+  server.listen(PORT, () => {
+    console.log(`🔥 Server running on http://localhost:${PORT}`);
+  });
+}
+
+export default app;
+
 
  

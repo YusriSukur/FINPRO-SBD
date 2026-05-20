@@ -1,0 +1,10 @@
+{
+  "name": "finpro-sbd-root",
+  "version": "1.0.0",
+  "description": "Root package.json to proxy scripts to the backend for easy cloud deployment",
+  "scripts": {
+    "postinstall": "cd backend && npm install",
+    "build": "cd backend && npx prisma generate && npm run build",
+    "start": "cd backend && npx prisma db push && npm run seed && npm start"
+  }
+}
