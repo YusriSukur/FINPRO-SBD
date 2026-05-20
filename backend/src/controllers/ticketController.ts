@@ -23,6 +23,16 @@ export const getQueueStatus = async (req: Request, res: Response) => {
   }
 };
 
+export const leaveQueue = async (req: Request, res: Response) => {
+  try {
+    const { eventId, userId } = req.body;
+    const result = await queueService.leaveQueue(eventId, userId);
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 export const reserveTicket = async (req: Request, res: Response) => {
   try {
     const { eventId, userId, category, seatNumber, price } = req.body;

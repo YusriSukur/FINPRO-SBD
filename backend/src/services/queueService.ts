@@ -55,6 +55,29 @@ export const getQueueStatus = async (eventId: string, userId: string) => {
   }
 };
 
+export const leaveQueue = async (eventId: string, userId: string) => {
+  if (!isRedisConnected()) {
+    throw new Error('Service Unavailable: Queue system is currently offline.');
+  }
+
+  try {
+    const queueKey = `queue:${eventId}`;
+    const removed = await redis.lrem(queueKey, 0, userId);
+
+    await redis.del(`can_reserve:${eventId}:${userId}`);
+
+    if (removed > 0) {
+      const remaining = await redis.llen(queueKey);
+      io.to(`event:${eventId}`).emit('queue_update', { eventId, queueLength: remaining });
+    }
+
+    return { removed: removed > 0 };
+  } catch (error) {
+    console.error('Redis leaveQueue error:', error);
+    throw new Error('Service Unavailable: Could not leave queue.');
+  }
+};
+
 export const promoteFromQueue = async (eventId: string, count: number = 5) => {
   if (!isRedisConnected()) {
     console.warn(`[Queue] Cannot promote users from queue. Redis is offline.`);

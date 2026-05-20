@@ -70,66 +70,92 @@ io.on('connection', (socket) => {
 // Bootstrap existing events into Redis on startup (Issue 5: Cold Start Fix)
 const bootstrapActiveEvents = async () => {
   try {
-    if (isRedisConnected()) {
-      const events = await prisma.event.findMany();
-      if (events.length > 0) {
-        const eventIds = events.map(e => e.id);
-        
-        // Mark events as active in Redis
-        await redis.sadd('active_events', ...eventIds);
-        
-        for (const event of events) {
-          const mainStockKey = `ticket_stock:${event.id}`;
-          const exists = await redis.exists(mainStockKey);
-          
-          if (!exists) {
-            console.log(`♻️ Restoring stock for event: ${event.title}`);
-            // Calculate remaining stock from DB (totalStock is already decremented on paid transactions)
-            // But to be even safer, we can re-calculate based on successful transactions if needed.
-            // For now, we trust the Event.totalStock as the source of truth.
-            const total = event.totalStock;
-            const vips = Math.floor(total * 0.1);
-            const cat1s = Math.floor(total * 0.3);
-            const cat2s = total - vips - cat1s;
+    const events = await prisma.event.findMany();
+    if (events.length > 0) {
+      const eventIds = events.map(e => e.id);
 
-            await Promise.all([
-              redis.set(`ticket_stock:${event.id}:VIP`, vips),
-              redis.set(`ticket_stock:${event.id}:CAT1`, cat1s),
-              redis.set(`ticket_stock:${event.id}:CAT2`, cat2s),
-              redis.set(mainStockKey, total),
-            ]);
+      // Mark events as active in Redis
+      await redis.sadd('active_events', ...eventIds);
+
+      for (const event of events) {
+        const mainStockKey = `ticket_stock:${event.id}`;
+        const mainExists = await redis.exists(mainStockKey);
+        const categoryKeys = [
+          `ticket_stock:${event.id}:VIP`,
+          `ticket_stock:${event.id}:CAT1`,
+          `ticket_stock:${event.id}:CAT2`,
+        ];
+        const categoryValues = await redis.mget(...categoryKeys);
+        const hasMissingCategories = categoryValues.some((value) => value === null);
+
+        if (!mainExists || hasMissingCategories) {
+          console.log(`♻️ Backfilling stock keys for event: ${event.title}`);
+          // Calculate remaining stock from DB (totalStock is already decremented on paid transactions)
+          // But to be even safer, we can re-calculate based on successful transactions if needed.
+          // For now, we trust the Event.totalStock as the source of truth.
+          const total = event.totalStock;
+          const vips = Math.floor(total * 0.1);
+          const cat1s = Math.floor(total * 0.3);
+          const cat2s = total - vips - cat1s;
+
+          const updates: Promise<unknown>[] = [
+            redis.set(`ticket_stock:${event.id}:VIP`, vips),
+            redis.set(`ticket_stock:${event.id}:CAT1`, cat1s),
+            redis.set(`ticket_stock:${event.id}:CAT2`, cat2s),
+          ];
+
+          if (!mainExists) {
+            updates.push(redis.set(mainStockKey, total));
           }
+
+          await Promise.all(updates);
         }
-        console.log(`✅ Bootstrapped ${events.length} active events into Redis`);
       }
+      console.log(`✅ Bootstrapped ${events.length} active events into Redis`);
     }
   } catch (error) {
     console.error('Failed to bootstrap active events:', error);
   }
 };
-bootstrapActiveEvents();
+let queueWorkerStarted = false;
+const startQueueWorker = () => {
+  if (queueWorkerStarted) return;
+  queueWorkerStarted = true;
 
-// Background Worker: Promote users from queue every 5 seconds (Issue 3: Efficient Worker)
-setInterval(async () => {
-  try {
-    if (!isRedisConnected()) {
-      console.log('⚠️ Redis offline, skipping background queue promotion.');
-      return;
-    }
-
-    // Use Redis Set to avoid DB polling every 5 seconds
-    const activeEventIds = await redis.smembers('active_events');
-    for (const eventId of activeEventIds) {
-      // Promote users ONLY if there is stock (logic inside promoteFromQueue)
-      const promoted = await queueService.promoteFromQueue(eventId, 3);
-      if (promoted && promoted.length > 0) {
-        console.log(`🚀 Promoted ${promoted.length} users for event: ${eventId}`);
+  // Background Worker: Promote users from queue every 5 seconds (Issue 3: Efficient Worker)
+  setInterval(async () => {
+    try {
+      if (!isRedisConnected()) {
+        console.log('⚠️ Redis offline, skipping background queue promotion.');
+        return;
       }
+
+      // Use Redis Set to avoid DB polling every 5 seconds
+      const activeEventIds = await redis.smembers('active_events');
+      for (const eventId of activeEventIds) {
+        // Promote users ONLY if there is stock (logic inside promoteFromQueue)
+        const promoted = await queueService.promoteFromQueue(eventId, 3);
+        if (promoted && promoted.length > 0) {
+          console.log(`🚀 Promoted ${promoted.length} users for event: ${eventId}`);
+        }
+      }
+    } catch (error) {
+      console.error('Worker error:', error);
     }
-  } catch (error) {
-    console.error('Worker error:', error);
-  }
-}, 5000);
+  }, 5000);
+};
+
+const initRedisBootstrapping = async () => {
+  if (!isRedisConnected()) return;
+  await bootstrapActiveEvents();
+  startQueueWorker();
+};
+
+redis.on('ready', () => {
+  void initRedisBootstrapping();
+});
+
+void initRedisBootstrapping();
 
 
 server.listen(PORT, () => {

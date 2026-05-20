@@ -17,6 +17,7 @@ router.post('/events', eventController.createEvent);
 
 // Queue
 router.post('/queue/join', ticketController.joinQueue);
+router.post('/queue/leave', ticketController.leaveQueue);
 router.get('/queue/status', ticketController.getQueueStatus);
 
 // Tickets
