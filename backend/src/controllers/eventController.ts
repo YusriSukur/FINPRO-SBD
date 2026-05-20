@@ -4,15 +4,51 @@ import redis from '../redis';
 
 export const getEvents = async (req: Request, res: Response) => {
   try {
+    // Try cache first, gracefully fallback on Redis error
+    try {
+      const cached = await redis.get('events:list');
+      if (cached) {
+        const events = JSON.parse(cached);
+        if (events.length === 0) return res.json([]);
+        
+        const stockKeys = events.map((e: any) => `ticket_stock:${e.id}`);
+        const stocks = await redis.mget(...stockKeys);
+        const enrichedEvents = events.map((event: any, i: number) => ({
+          ...event,
+          currentStock: stocks[i] ? parseInt(stocks[i]) : 0,
+        }));
+        console.log('✅ Cache Hit: Served events from Redis');
+        return res.json(enrichedEvents);
+      }
+    } catch (redisError: any) {
+      console.log('⚠️ Redis unreachable (read error). Bypassing cache! Reason:', redisError.message);
+    }
+
+    // Cache miss or Redis error - query PostgreSQL
     const events = await prisma.event.findMany();
-    // Enrich with real-time stock from Redis
-    const enrichedEvents = await Promise.all(events.map(async (event) => {
-      const stock = await redis.get(`ticket_stock:${event.id}`);
-      return {
-        ...event,
-        currentStock: stock ? parseInt(stock) : 0,
-      };
+    
+    try {
+      await redis.set('events:list', JSON.stringify(events), 'EX', 60);
+    } catch (redisError: any) {
+      console.log('⚠️ Redis unreachable (write error). Skipping cache save.');
+    }
+
+    if (events.length === 0) return res.json([]);
+
+    let stocks: (string | null)[] = [];
+    try {
+      const stockKeys = events.map((e) => `ticket_stock:${e.id}`);
+      stocks = await redis.mget(...stockKeys);
+    } catch (redisError: any) {
+      console.log('⚠️ Redis unreachable (stock read error). Defaulting stocks to 0.');
+      stocks = new Array(events.length).fill(null);
+    }
+
+    const enrichedEvents = events.map((event, i) => ({
+      ...event,
+      currentStock: stocks[i] ? parseInt(stocks[i]) : 0,
     }));
+    console.log('❌ Cache Miss: Fetched events from PostgreSQL and updated Redis');
     res.json(enrichedEvents);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -21,11 +57,17 @@ export const getEvents = async (req: Request, res: Response) => {
 
 export const getEventById = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const event = await prisma.event.findUnique({ where: { id } });
     if (!event) return res.status(404).json({ error: 'Event not found' });
 
-    const stock = await redis.get(`ticket_stock:${id}`);
+    let stock = null;
+    try {
+      stock = await redis.get(`ticket_stock:${id}`);
+    } catch (redisError) {
+      console.error('Redis stock read error:', redisError);
+    }
+
     res.json({
       ...event,
       currentStock: stock ? parseInt(stock) : 0,
@@ -58,8 +100,23 @@ export const createEvent = async (req: Request, res: Response) => {
       },
     });
 
-    // Initialize stock in Redis
-    await redis.set(`ticket_stock:${event.id}`, totalStock);
+    // Initialize stock in Redis (Issue 4: Categorized Stock)
+    // For this demo, we'll split totalStock: 10% VIP, 30% CAT1, 60% CAT2
+    const vips = Math.floor(totalStock * 0.1);
+    const cat1s = Math.floor(totalStock * 0.3);
+    const cat2s = totalStock - vips - cat1s;
+
+    await Promise.all([
+      redis.set(`ticket_stock:${event.id}:VIP`, vips),
+      redis.set(`ticket_stock:${event.id}:CAT1`, cat1s),
+      redis.set(`ticket_stock:${event.id}:CAT2`, cat2s),
+      // Also keep a total stock reference if needed
+      redis.set(`ticket_stock:${event.id}`, totalStock),
+      // Add to active events set for background worker
+      redis.sadd('active_events', event.id),
+      // Invalidate events cache
+      redis.del('events:list'),
+    ]);
     
     res.status(201).json(event);
   } catch (error: any) {

@@ -1,15 +1,15 @@
 'use client';
 
-import React, { useEffect, useState, use } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Navbar } from '../../../components/Navbar';
-import { api, getEventById, joinQueue, getQueueStatus, reserveTicket, confirmPayment } from '../../../lib/api';
+import { api, getEventById, joinQueue, leaveQueue, getQueueStatus, reserveTicket, confirmPayment } from '../../../lib/api';
 import { socket } from '../../../lib/socket';
 import { Calendar, MapPin, Users, Timer, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function EventDetail({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function EventDetail({ params }: { params: { id: string } }) {
+  const { id } = params;
   const router = useRouter();
   const [event, setEvent] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -76,13 +76,13 @@ export default function EventDetail({ params }: { params: Promise<{ id: string }
       currentUserId = parsedUser.id;
     }
 
-    socket.on('queue_update', (data) => {
+    socket.on('queue_update', (data: any) => {
       if (data.eventId === id) {
         // Optionally update global queue length
       }
     });
 
-    socket.on('user_promoted', (data) => {
+    socket.on('user_promoted', (data: any) => {
       if (currentUserId && data.userId === currentUserId && data.eventId === id) {
         setStatus('promoted');
       }
@@ -92,6 +92,36 @@ export default function EventDetail({ params }: { params: Promise<{ id: string }
       socket.disconnect();
     };
   }, [id]);
+
+  useEffect(() => {
+    if (!user || status !== 'queueing') return;
+
+    let cancelled = false;
+    const pollQueueStatus = async () => {
+      try {
+        const res = await getQueueStatus(id, user.id);
+        if (cancelled) return;
+
+        if (res.status === 'promoted') {
+          setStatus('promoted');
+        } else if (res.status === 'waiting') {
+          setQueuePosition(res.position);
+        } else if (res.status === 'not_in_queue') {
+          setStatus('idle');
+          setQueuePosition(null);
+        }
+      } catch (error) {
+        console.error('Failed to refresh queue status:', error);
+      }
+    };
+
+    pollQueueStatus();
+    const interval = setInterval(pollQueueStatus, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [id, status, user]);
 
   // Timer logic for reservation
   useEffect(() => {
@@ -114,9 +144,26 @@ export default function EventDetail({ params }: { params: Promise<{ id: string }
       setStatus('queueing');
       const res = await joinQueue(id, user.id);
       setQueuePosition(res.position);
+
+      const statusRes = await getQueueStatus(id, user.id);
+      if (statusRes.status === 'promoted') {
+        setStatus('promoted');
+      }
     } catch (error) {
       console.error(error);
       setStatus('idle');
+    }
+  };
+
+  const handleLeaveQueue = async () => {
+    if (!user) return;
+    try {
+      await leaveQueue(id, user.id);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setStatus('idle');
+      setQueuePosition(null);
     }
   };
 
@@ -129,15 +176,8 @@ export default function EventDetail({ params }: { params: Promise<{ id: string }
     try {
       setStatus('reserving');
       
-      const seatDetails = JSON.stringify({
-        category: selectedCategory.name,
-        seat: selectedSeat,
-        price: selectedCategory.price
-      });
-
-      // API call should accept seatDetails in a real app.
-      // For now we use the existing reserveTicket function and mock the backend capability.
-      await reserveTicket(id, user.id); 
+      const enumCategory = selectedCategory.id.toUpperCase(); // VIP, CAT1, CAT2
+      await reserveTicket(id, user.id, enumCategory, selectedSeat, selectedCategory.price); 
     } catch (error: any) {
       alert(error.response?.data?.error || 'Failed to reserve');
       setStatus('selecting_seat');
@@ -267,6 +307,12 @@ export default function EventDetail({ params }: { params: Promise<{ id: string }
                       <div className="text-zinc-500 text-xs uppercase tracking-widest mb-1">Posisi Anda</div>
                       <div className="text-5xl font-black gradient-text">#{queuePosition || '...'}</div>
                     </div>
+                    <button
+                      onClick={handleLeaveQueue}
+                      className="mt-6 w-full py-3 rounded-2xl font-bold bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                    >
+                      Keluar Antrean
+                    </button>
                   </motion.div>
                 )}
 

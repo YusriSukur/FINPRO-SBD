@@ -15,6 +15,12 @@ enum Role {
   SELLER
 }
 
+enum TicketCategory {
+  VIP
+  CAT1
+  CAT2
+}
+
 model Event {
   id          String   @id @default(uuid())
   title       String
@@ -47,7 +53,9 @@ model Transaction {
   userId      String
   eventId     String
   status      String   // PENDING, PAID, EXPIRED
-  seatDetails String?  // Stores JSON string of selected seat category, seat number, and price
+  category    TicketCategory?
+  seatNumber  String?
+  price       Float?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   event       Event    @relation(fields: [eventId], references: [id])

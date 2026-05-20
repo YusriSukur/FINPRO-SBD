@@ -21,6 +21,11 @@ export const joinQueue = async (eventId: string, userId: string) => {
   return response.data;
 };
 
+export const leaveQueue = async (eventId: string, userId: string) => {
+  const response = await api.post('/queue/leave', { eventId, userId });
+  return response.data;
+};
+
 export const getQueueStatus = async (eventId: string, userId: string) => {
   const response = await api.get('/queue/status', {
     params: { eventId, userId },
@@ -28,8 +33,8 @@ export const getQueueStatus = async (eventId: string, userId: string) => {
   return response.data;
 };
 
-export const reserveTicket = async (eventId: string, userId: string) => {
-  const response = await api.post('/ticket/reserve', { eventId, userId });
+export const reserveTicket = async (eventId: string, userId: string, category?: string, seatNumber?: string, price?: number) => {
+  const response = await api.post('/ticket/reserve', { eventId, userId, category, seatNumber, price });
   return response.data;
 };
 
