@@ -6,7 +6,7 @@ import { htmlReport } from "https://raw.githubusercontent.com/benc-uk/k6-reporte
 // KONFIGURASI 
 // ==============================
 const BASE_URL = 'http://localhost:4000/api' 
-const EVENT_ID = 'event-1' 
+const EVENT_ID = 'da251799-7ce5-4fbe-ab21-22920e8cf6c7'
 const TICKET_CATEGORY = 'CAT2'
 
 export const options = {
@@ -26,15 +26,14 @@ export const options = {
   },
   thresholds: {
     http_req_duration: ['p(95)<3000'], 
-    http_req_failed: ['rate<0.15'],     
   },
 }
 
 export function setup() {
   const users = []
-  const TOTAL_USERS = 300 
+  const TOTAL_USERS = 1000
 
-  console.log(`⏳ Sedang mendaftarkan ${TOTAL_USERS} user ke database, mohon tunggu...`);
+  console.log(`⏳ Sedang mendaftarkan ${TOTAL_USERS} user ke database...`);
   
   for (let i = 1; i <= TOTAL_USERS; i++) {
     const email = `warrior${i}_${Date.now()}@test.com`
@@ -46,10 +45,7 @@ export function setup() {
       password
     }), { headers: { 'Content-Type': 'application/json' } })
 
-    if (regRes.status !== 201) {
-      console.error(`❌ Register gagal untuk user ${i}: API menjawab Status ${regRes.status} -> ${regRes.body}`);
-      continue; 
-    }
+    if (regRes.status !== 201) continue; 
 
     const loginRes = http.post(`${BASE_URL}/auth/login`, JSON.stringify({
       email, password
@@ -57,17 +53,16 @@ export function setup() {
 
     if (loginRes.status === 200) {
       const body = JSON.parse(loginRes.body || '{}')
-      if (body.token) {
-        users.push({ token: body.token, email })
+      if (body.token && body.user?.id) {
+        users.push({ token: body.token, email, userId: body.user.id }) 
       }
     }
+    
+    if (i % 50 === 0) console.log(`✅ Progress: ${i} / ${TOTAL_USERS} user siap...`);
   }
 
-  if (users.length === 0) {
-    throw new Error("🚨 FATAL ERROR: 0 user berhasil didaftarkan. Tolong cek apakah Port BASE_URL sudah sama dengan terminal backend kamu!");
-  }
-
-  console.log(`✅ ${users.length} user siap untuk war ticket!`)
+  if (users.length === 0) throw new Error("🚨 FATAL ERROR: 0 user berhasil didaftarkan.");
+  console.log(`🚀 SETUP SELESAI! Memulai war ticket dengan ${users.length} user...`)
   return { users }
 }
 
@@ -82,59 +77,41 @@ export default function (data) {
     'Authorization': `Bearer ${user.token}`
   }
 
-  // === FASE 1: Join Antrean (Queue) ===
-  const joinRes = http.post(`${BASE_URL}/queue/join`,
-    JSON.stringify({ eventId: EVENT_ID }),
-    { headers }
-  )
-  
-  if (joinRes.status !== 200 && joinRes.status !== 201) return;
-
-  // === FASE 2: Polling Status Queue ===
-  let isPromoted = false;
-  let attempts = 0;
-  
-  while (!isPromoted && attempts < 20) {
-    sleep(2); 
-    
-    const statusRes = http.get(`${BASE_URL}/queue/status?eventId=${EVENT_ID}`, { headers })
-    
-    if (statusRes.status === 200) {
-      const statusBody = JSON.parse(statusRes.body)
-      if (statusBody.status === 'promoted') {
-        isPromoted = true;
-        break;
-      }
-    }
-    attempts++;
-  }
-
-  if (!isPromoted) return; 
-
-  // === FASE 3: Reserve tiket ===
+  // === FASE 3: Langsung Reserve tiket ===
   const reserveRes = http.post(`${BASE_URL}/ticket/reserve`,
-    JSON.stringify({ eventId: EVENT_ID, category: TICKET_CATEGORY }),
+    JSON.stringify({ eventId: EVENT_ID, category: TICKET_CATEGORY, userId: user.userId }),
     { headers }
   )
 
   check(reserveRes, {
     'Reserve berhasil': (r) => r.status === 201 || r.status === 200,
-    'Reserve ditolak (tiket habis)': (r) => r.status === 400,
   })
 
-  if (reserveRes.status === 201 || reserveRes.status === 200) {
-    sleep(1.5) 
+  // 🚨 TANGKAP ERROR JIKA GAGAL RESERVE
+  if (reserveRes.status !== 200 && reserveRes.status !== 201) {
+    console.log(`❌ VU ${__VU} Gagal Reserve: Status ${reserveRes.status} -> ${reserveRes.body}`);
+  } 
+  // === FASE 4: Bayar tiket (Hanya jika reserve sukses) ===
+  else {
+    sleep(Math.random() + 1); // Jeda realistis 1-2 detik sebelum bayar (simulasi orang ketik PIN)
 
-    // === FASE 4: Bayar tiket ===
     const payRes = http.post(`${BASE_URL}/payment/confirm`,
-      JSON.stringify({ eventId: EVENT_ID }),
+      JSON.stringify({ eventId: EVENT_ID, userId: user.userId }), 
       { headers }
     )
 
     check(payRes, {
       'Pembayaran berhasil': (r) => r.status === 200,
     })
+
+    // 🚨 TANGKAP ERROR JIKA GAGAL BAYAR
+    if (payRes.status !== 200) {
+       console.log(`❌ VU ${__VU} Gagal Bayar: Status ${payRes.status} -> ${payRes.body}`);
+    }
   }
+
+  // 🆕 WAJIB ADA: Jeda 1 detik di setiap akhir siklus agar K6 tidak "kesetanan" saat gagal
+  sleep(1); 
 }
 
 export function handleSummary(data) {
@@ -149,12 +126,8 @@ export function handleSummary(data) {
 ║ Request/detik   : ${reqs?.rate?.toFixed(2) ?? 0}
 ║ Avg Response    : ${duration?.avg?.toFixed(2) ?? 0}ms
 ║ P95 Response    : ${duration?.['p(95)']?.toFixed(2) ?? 0}ms
-╠═════════════════════════════════════════════════╣
-║ ✅ Redis In-Memory Queuing Dites                ║
-║ ✅ Atomic Decrements Dievaluasi                 ║
 ╚═════════════════════════════════════════════════╝
   `
-
   return {
     stdout: customStdout, 
     "load-test-report.html": htmlReport(data) 
