@@ -234,3 +234,7 @@ graph TD
    *   `NEXT_PUBLIC_API_URL` = `https://[URL-BACKEND-ANDA].onrender.com/api`
    *   `NEXT_PUBLIC_SOCKET_URL` = `https://[URL-BACKEND-ANDA].onrender.com`
 4. Klik **Deploy**! Vercel akan secara otomatis membangun aplikasi Next.js Anda dan menyediakannya dengan SSL gratis.
+
+
+**Hasil Akhir "**
+<img width="596" height="204" alt="image" src="https://github.com/user-attachments/assets/0686521e-86d6-4f75-a002-4ab9946972fa" />
